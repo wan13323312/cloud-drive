@@ -1,0 +1,12 @@
+Flask>=2.3
+Flask-JWT-Extended>=4.5
+Flask-SQLAlchemy>=3.0
+Werkzeug>=2.3
+boto3>=1.26
+requests>=2.31
+watchdog>=4.0
+
+pytest>=8.0
+pytest-flask>=1.2
+coverage>=7.0
+python-dotenv>=1.0
