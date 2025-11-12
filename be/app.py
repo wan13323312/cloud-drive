@@ -5,6 +5,10 @@ from routes.auth_routes import auth_bp
 from routes.file_routes import file_bp
 from routes.sync_routes import sync_bp
 from services.user_service import UserService
+# 导入所有模型以确保数据库表创建
+from models.user import User
+from models.file import File
+from models.md5_ref import Md5Ref
 
 def create_app():
     app = Flask(__name__)
