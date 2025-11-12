@@ -3,32 +3,49 @@ import os
 import shutil
 import zipfile
 from config import Config
-from utils.compress import compress_for_storage, decompress_from_storage
+from utils.compress import decompress_from_storage
+from services.dedup.md5_store import Md5Store
 
 UPLOAD_DIR = "./uploads"
+STORE_DIR = os.path.join(UPLOAD_DIR, ".store")  # content-addressed blob store
 
 class LocalStorage:
+    def __init__(self):
+        self._md5_store = Md5Store(uploads_root=UPLOAD_DIR)
     def _get_user_dir(self, user_id, folder=''):
         path = os.path.join(UPLOAD_DIR, str(user_id), folder)
         os.makedirs(path, exist_ok=True)
         return path
 
+    def _ensure_store(self):
+        os.makedirs(STORE_DIR, exist_ok=True)
+
     def upload_file(self, user_id, file_obj, folder=''):
         user_dir = self._get_user_dir(user_id, folder)
         file_path = os.path.join(user_dir, file_obj.filename)
-        # 入库压缩（封装在工具层，可通过配置开关控制）
+        # 读原始数据，通过 Md5Store 去重
         data = file_obj.read()
-        compressed = compress_for_storage(data, enabled=getattr(Config, "ENABLE_COMPRESSION", True))
-        with open(file_path, 'wb') as f:
-            f.write(compressed)
-        return file_path
+        md5_hex = self._md5_store.ensure_blob(data)
+        self._md5_store.inc_ref(md5_hex)
+
+        # 在用户目录写入“指针文件”，内容为 REF:<md5>
+        with open(file_path, 'wb') as pf:
+            pf.write(self._md5_store.make_pointer(md5_hex))
+        return {"path": file_path, "md5": md5_hex}
 
     def download_file(self, user_id, filename, folder=''):
         file_path = os.path.join(self._get_user_dir(user_id, folder), filename)
         with open(file_path, 'rb') as f:
-            blob = f.read()
-        # 出库解压（封装在工具层）
-        return decompress_from_storage(blob, enabled=getattr(Config, "ENABLE_COMPRESSION", True))
+            content = f.read()
+        if self._md5_store.is_pointer(content):
+            md5_hex = self._md5_store.parse_pointer(content)
+            blob = self._md5_store.read_blob(md5_hex)
+            if blob is None:
+                return b""
+            return blob
+        else:
+            # 兼容旧文件：直接按以前的方式处理
+            return decompress_from_storage(content, enabled=getattr(Config, "ENABLE_COMPRESSION", True))
 
     def list_files(self, user_id, folder=''):
         user_dir = self._get_user_dir(user_id, folder)
@@ -38,10 +55,18 @@ class LocalStorage:
 
     def delete_file(self, user_id, filename, folder=''):
         file_path = os.path.join(self._get_user_dir(user_id, folder), filename)
-        if os.path.exists(file_path):
+        if not os.path.exists(file_path):
+            return False
+        # 如果是指针文件，需要递减引用计数并可能清理 blob
+        try:
+            with open(file_path, "rb") as f:
+                content = f.read()
+            if self._md5_store.is_pointer(content):
+                md5_hex = self._md5_store.parse_pointer(content)
+                self._md5_store.dec_ref(md5_hex)
+        finally:
             os.remove(file_path)
-            return True
-        return False
+        return True
 
     def create_folder(self, user_id, foldername):
         self._get_user_dir(user_id, foldername)
