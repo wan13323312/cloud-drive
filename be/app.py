@@ -4,6 +4,7 @@ from flask_jwt_extended import JWTManager
 from routes.auth_routes import auth_bp
 from routes.file_routes import file_bp
 from routes.sync_routes import sync_bp
+from routes.optimized_file_routes import optimized_file_bp
 from services.user_service import UserService
 # 导入所有模型以确保数据库表创建
 from models.user import User
@@ -26,6 +27,7 @@ def create_app():
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(file_bp, url_prefix='/file')
     app.register_blueprint(sync_bp, url_prefix='/sync')
+    app.register_blueprint(optimized_file_bp)
 
     with app.app_context():
         db.create_all()
